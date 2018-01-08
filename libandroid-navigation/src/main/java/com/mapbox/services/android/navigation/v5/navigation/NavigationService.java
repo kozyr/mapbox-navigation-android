@@ -12,8 +12,10 @@ import android.os.IBinder;
 import android.support.annotation.Nullable;
 
 import com.mapbox.api.directions.v5.models.DirectionsRoute;
+import com.mapbox.geojson.Point;
 import com.mapbox.services.android.navigation.v5.milestone.Milestone;
 import com.mapbox.services.android.navigation.v5.navigation.notification.NavigationNotification;
+import com.mapbox.services.android.navigation.v5.route.RouteEngine;
 import com.mapbox.services.android.navigation.v5.routeprogress.RouteProgress;
 import com.mapbox.services.android.navigation.v5.utils.RingBuffer;
 import com.mapbox.services.android.telemetry.location.LocationEngine;
@@ -37,7 +39,7 @@ import static com.mapbox.services.android.navigation.v5.navigation.NavigationHel
  * </p>
  */
 public class NavigationService extends Service implements LocationEngineListener,
-  NavigationEngine.Callback {
+  NavigationEngine.Callback, RouteEngine.Callback {
 
   // Message id used when a new location update occurs and we send to the thread.
   private static final int MSG_LOCATION_UPDATED = 1001;
@@ -47,6 +49,7 @@ public class NavigationService extends Service implements LocationEngineListener
 
   private NavigationNotification navigationNotification;
   private MapboxNavigation mapboxNavigation;
+  private RouteEngine routeEngine;
   private LocationEngine locationEngine;
   private NavigationEngine thread;
 
@@ -143,6 +146,21 @@ public class NavigationService extends Service implements LocationEngineListener
     }
   }
 
+  // TODO add javadoc
+  @Override
+  public void onCheckFasterRoute(Location location, boolean checkFasterRoute) {
+    if (checkFasterRoute) {
+      Point origin = Point.fromLngLat(location.getLongitude(), location.getLatitude());
+      routeEngine.fetchFasterRoute(origin, mapboxNavigation.getRoute().routeOptions());
+    }
+  }
+
+  // TODO add javadoc
+  @Override
+  public void onFasterRouteFound(DirectionsRoute route) {
+    mapboxNavigation.startNavigation(route);
+  }
+
   /**
    * This gets called when {@link MapboxNavigation#startNavigation(DirectionsRoute)} is called and
    * setups variables among other things on the Navigation Service side.
@@ -150,6 +168,7 @@ public class NavigationService extends Service implements LocationEngineListener
   void startNavigation(MapboxNavigation mapboxNavigation) {
     this.mapboxNavigation = mapboxNavigation;
     initNotification(mapboxNavigation);
+    initRouteEngine(mapboxNavigation);
     acquireLocationEngine();
     forceLocationUpdate();
   }
@@ -207,6 +226,20 @@ public class NavigationService extends Service implements LocationEngineListener
       Notification notification = navigationNotification.getNotification();
       int notificationId = navigationNotification.getNotificationId();
       startForegroundNotification(notification, notificationId);
+    }
+  }
+
+  /**
+   * Builds a new route engine which can be used to find faster routes
+   * during a navigation session based on traffic.
+   * <p>
+   * Check to see if this functionality is enabled / disabled first.
+   *
+   * @param mapboxNavigation for options to check if enabled / disabled
+   */
+  private void initRouteEngine(MapboxNavigation mapboxNavigation) {
+    if (mapboxNavigation.options().enableFasterRouteDetection()) {
+      routeEngine = new RouteEngine(this);
     }
   }
 
